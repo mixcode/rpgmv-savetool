@@ -22,6 +22,9 @@ const (
 
 	// the id that represents not-a-open-range
 	idNotOpen = math.MaxInt
+
+	// default extension of the archive file
+	extRpgArchive = ".rpgarch"
 )
 
 func rpgMvIndexFilename(dirpath string) string {
@@ -164,17 +167,22 @@ func writeRpgMvSaveIndex(save []*saveEntry, dirpath string) (err error) {
 		if data == nil {
 			continue
 		}
-		for e.Id < len(sIndex) {
+		//log.Printf("id %d / %d", e.Id, len(sIndex))
+		for e.Id > len(sIndex) {
 			sIndex = append(sIndex, []byte("null"))
 		}
 		sIndex = append(sIndex, data)
 	}
+	//for i, e := range sIndex { //!!DEBUG
+	//	log.Printf("save %d: %s", i, string(e))
+	//}
 	js, err := json.Marshal(sIndex)
 	if err != nil {
 		return
 	}
 	indexFile := rpgMvIndexFilename(dirpath)
-	return os.WriteFile(indexFile, js, 0644)
+	enc := lzstring.CompressToBase64(string(js))
+	return os.WriteFile(indexFile, []byte(enc), 0644)
 }
 
 // write savedata to rpg maker mv save directory
@@ -212,6 +220,8 @@ func writeRpgMvSaveAll(dirpath string, save []*saveEntry) (err error) {
 		case ErrNoData:
 		case ErrNotChanged:
 			log.Printf("not changed")
+		case nil:
+			// do nothing
 		default:
 			return e
 		}
@@ -386,43 +396,75 @@ func splitIndex(namepath string) (path string, id []int, openStart int, err erro
 
 // determine the type of save at the path
 func detectSaveType(inPath string) (path string, isRpgMvSave bool, err error) {
+
+	mkDirPath := func(s string) string {
+		// append / or \ at the end of the path
+		return filepath.Join(s, "") + string(os.PathSeparator)
+	}
+
+	_, f := filepath.Split(inPath)
+	if f == "" {
+		// the path ends with a slash
+		// treat it as an RpgMvSave directory
+		return mkDirPath(inPath), true, nil
+	}
+
 	st, err := os.Lstat(inPath)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			// file not exist: must be a new archive type
-			return inPath, false, nil
+		if !errors.Is(err, os.ErrNotExist) {
+			return
 		}
-		return
+		ext := filepath.Ext(inPath)
+		if ext == "" && cfg.useDefaultExt {
+			inPath = inPath + extRpgArchive
+			st, err = os.Lstat(inPath)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return
+			}
+		}
 	}
-	rpgMvSave := false
+	if st == nil {
+		// file not found: treat it as a rpgarch archive
+		return inPath, false, nil
+	}
+
 	if st.IsDir() {
-		rpgMvSave = true
-	} else {
-		_p, _n := filepath.Split(inPath)
-		if _n == saveGlobal {
-			inPath = _p
-			rpgMvSave = true
-		}
+		// a directory found
+		return mkDirPath(inPath), true, nil
 	}
-	return inPath, rpgMvSave, nil
+	_p, _n := filepath.Split(inPath)
+	if _n == saveGlobal {
+		// the file is global.rpgsave in the save directory
+		inPath = _p
+		isRpgMvSave = true
+		return _p, true, nil
+	}
+	// the path is a normal file
+	return inPath, false, nil
 }
 
-// open the save at the path
-func readSaveAtPath(path string, indexOnly bool) (save []*saveEntry, err error) {
+// open the save at the path, autodetecting the save type
+func readSaveAtPath(path string, indexOnly bool) (normalizedPath string, save []*saveEntry, err error) {
 	path, rpgMvSave, err := detectSaveType(path)
 	if err != nil {
 		return
 	}
 	if rpgMvSave {
+		normalizedPath = path
 		if indexOnly {
-			return readRpgMvSaveIndex(path)
+			save, err = readRpgMvSaveIndex(path)
+			return
 		} else {
-			return readRpgMvSaveAll(path)
+			save, err = readRpgMvSaveAll(path)
+			return
 		}
 	}
-	return readRpgArch(path)
+	normalizedPath = path
+	save, err = readRpgArch(path)
+	return
 }
 
+// write the save to the path, autodetecting the save type
 func writeSaveToPath(path string, save []*saveEntry, rawJson, pretty bool) (err error) {
 	path, _, _, _ = splitIndex(path)
 	path, rpgMvSave, err := detectSaveType(path)
@@ -430,7 +472,13 @@ func writeSaveToPath(path string, save []*saveEntry, rawJson, pretty bool) (err 
 		return
 	}
 	if rpgMvSave {
+		//log.Printf("write rpgMvSave")
+		err = os.MkdirAll(path, 0644)
+		if err != nil {
+			return
+		}
 		return writeRpgMvSaveAll(path, save)
 	}
+	//log.Printf("write rpgMvArch")
 	return writeRpgArch(path, save, rawJson, pretty)
 }

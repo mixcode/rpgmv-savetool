@@ -1,3 +1,4 @@
+// A tool to manipulate rpg maker mv savefiles
 package main
 
 import (
@@ -13,20 +14,28 @@ type config struct {
 	force      bool // force overwrite
 	rawJson    bool // save raw json (if possible)
 	prettyJson bool // save pretty formatted json
-	verbose    bool // verbose mode
+
+	useDefaultExt bool
+
+	verbose bool // verbose mode
+
 	setComment bool // set comments to modifying entries
 	comment    string
 }
 
 var (
+
+	// gloval config
 	cfg = config{
-		force:      false,
-		rawJson:    false,
-		prettyJson: false,
-		verbose:    false,
-		setComment: false,
+		force:         false,
+		rawJson:       false,
+		prettyJson:    false,
+		useDefaultExt: true,
+		verbose:       false,
+		setComment:    false,
 	}
 
+	// non-flag arguments
 	args []string
 )
 
@@ -37,14 +46,16 @@ func getArg(n int) string {
 	return ""
 }
 
+// actual main
 func run() (err error) {
-	if len(args) == 0 {
-		err = errors.New("give a command. use -h for help")
+	cmd := getArg(0)
+	if cmd == "" {
+		err = errors.New("no command given. valid commands are 'ls', 'cp', 'mv', 'rm'. use -h for help")
 		return
 	}
-	cmd := args[0]
 
 	switch cmd {
+
 	case "ls": // list the contents of the archive
 		path := getArg(1)
 		if path == "" {
@@ -63,6 +74,9 @@ func run() (err error) {
 			return
 		}
 		err = cmdCp(src, dest)
+
+	//case "mv":	// move savefile
+	//case "rm":	// remove savefile
 
 	case "d", "e": // "d" and "e" is hidden commands for decoding and encoding lzstring file
 		src, dest := getArg(1), getArg(2)
@@ -100,16 +114,6 @@ func run() (err error) {
 func main() {
 	var err error
 
-	/*
-		force      bool // force overwrite
-		rawJson    bool // save raw json (if possible)
-		prettyJson bool // save pretty formatted json
-		verbose    bool // verbose mode
-
-		setComment bool // set comments to modifying entries
-		comment    string
-	*/
-
 	// separate args and flags
 	flagArgs := make([]string, 0)
 	args = make([]string, 0)
@@ -135,7 +139,12 @@ func main() {
 
 	fs.BoolVar(&cfg.force, "f", cfg.force, "Force overwrite")
 	fs.BoolVar(&cfg.verbose, "v", cfg.verbose, "verbose mode")
+	fs.BoolVar(&cfg.useDefaultExt, "x", cfg.useDefaultExt, fmt.Sprintf("add extension (%s) to file if no extension found", extRpgArchive))
 	fs.StringVar(&cfg.comment, "c", "", "set comment to modifying savefiles")
+
+	// alternative flags
+	fs.Bool("no-default-ext", false, "same as '-x=false'")
+	//fs.Bool("verbose", cfg.verbose, "")
 
 	if help {
 		fs.Usage()
@@ -143,13 +152,23 @@ func main() {
 	}
 
 	// add hidden flags
-	fs.BoolVar(&cfg.rawJson, "j", cfg.rawJson, "")       // print raw json
-	fs.BoolVar(&cfg.prettyJson, "p", cfg.prettyJson, "") // pretty-printed json
-	fs.Parse(flagArgs)                                   // parse again to enable hidden flags
-	fs.Visit(func(f *flag.Flag) {                        // check whether each flag is set
-		if f.Name == "c" {
-			// comment has entered
+	fs.BoolVar(&cfg.rawJson, "j", cfg.rawJson, "")       // write savefiles as raw json, rather than encrypted lzstring
+	fs.BoolVar(&cfg.prettyJson, "p", cfg.prettyJson, "") // write pretty-printed json when writing json
+
+	// parse flags
+	fs.Parse(flagArgs)            // parse again to enable hidden flags
+	fs.Visit(func(f *flag.Flag) { // check whether each flag is set
+		switch f.Name {
+		case "c":
+			// comment has set
 			cfg.setComment = true // turn comment-modify flag ON
+		case "no-default-ext":
+			if f.Value.String() == "true" {
+				cfg.useDefaultExt = false
+			}
+		case "verbose":
+			//fs.Lookup("v").Value.Set(f.Value.String())
+			cfg.verbose = (f.Value.String() == "true")
 		}
 	})
 
@@ -157,6 +176,7 @@ func main() {
 	err = run()
 
 	if err != nil {
+		//fmt.Fprintln(os.Stderr, "Error: "+err.Error())
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}

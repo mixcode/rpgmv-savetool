@@ -90,7 +90,7 @@ func cmdLs(path string) (err error) {
 		return
 	}
 
-	saveEntry, err := readSaveAtPath(path, true)
+	_, saveEntry, err := readSaveAtPath(path, true)
 	if err != nil {
 		return
 	}
@@ -184,7 +184,7 @@ func (em *idEmit) Next() (L, R int, ok bool) {
 }
 
 // open two save file and get mapping between two list
-func selectEntryMap(src, dest string) (srcList, destList []*saveEntry, sel []copyMap, err error) {
+func selectEntryMap(src, dest string) (normalizedSrc, normlizedDest string, srcList, destList []*saveEntry, sel []copyMap, err error) {
 
 	src, srcId, srcOpenStart, err := splitIndex(src)
 	if err != nil {
@@ -203,7 +203,7 @@ func selectEntryMap(src, dest string) (srcList, destList []*saveEntry, sel []cop
 		}
 	}
 
-	srcEntry, err := readSaveAtPath(src, false)
+	src, srcEntry, err := readSaveAtPath(src, false)
 	if err != nil {
 		return
 	}
@@ -212,7 +212,7 @@ func selectEntryMap(src, dest string) (srcList, destList []*saveEntry, sel []cop
 		srcMap[e.Id] = e
 	}
 
-	destEntry, e := readSaveAtPath(dest, false)
+	dest, destEntry, e := readSaveAtPath(dest, false)
 	if e != nil {
 		destEntry = make([]*saveEntry, 0)
 	}
@@ -242,22 +242,28 @@ func selectEntryMap(src, dest string) (srcList, destList []*saveEntry, sel []cop
 		}
 	}
 
-	return srcEntry, destEntry, selection, nil
+	return src, dest, srcEntry, destEntry, selection, nil
 }
 
 // copy a file
 func cmdCp(src, dest string) (err error) {
 
-	_, destEntry, cMap, err := selectEntryMap(src, dest)
+	srcName, destName, _, destEntry, cMap, err := selectEntryMap(src, dest)
 	if err != nil {
 		return
 	}
+
+	//srcName, _, _, _ := splitIndex(src)
+	//destName, _, _, _ := splitIndex(dest)
+
+	verboseCopyFrom := make(map[int]int)
 
 	// change ID of entries to be copied
 	copyEntry := make([]*saveEntry, len(cMap))
 	for i, e := range cMap {
 		copyEntry[i] = e.Save
 		copyEntry[i].Id = e.To
+		verboseCopyFrom[e.To] = e.From
 	}
 
 	// merge dest with selection
@@ -265,12 +271,16 @@ func cmdCp(src, dest string) (err error) {
 
 	// check duplicates
 	l2 := make([]*saveEntry, 0)
-	for i := 0; i < len(l)-1; i++ {
-		if cfg.setComment {
-			l[i].Comment = cfg.comment
-		}
+	for i := 0; i < len(l); i++ {
 		l2 = append(l2, l[i])
-		if l[i].Id == l[i+1].Id {
+		if cfg.verbose {
+			idTo := l[i].Id
+			idFrom, copyOk := verboseCopyFrom[idTo]
+			if copyOk {
+				fmt.Printf("copying %s#%d to %s#%d\n", srcName, idFrom, destName, idTo)
+			}
+		}
+		if i < len(l)-1 && l[i].Id == l[i+1].Id {
 			overwrite := false
 			if cfg.force {
 				overwrite = true
@@ -279,12 +289,14 @@ func cmdCp(src, dest string) (err error) {
 				overwrite = promptYN(fmt.Sprintf("Overwrite #%d? (y/N) ", l[i].Id), false)
 			}
 			if overwrite {
-				// remove the last added entry
-				l2 = l2[:len(l2)-1]
-			} else {
-				// skip the next entry
-				i++
+				// overwrite the last added entry
+				l2[len(l2)-1] = l[i+1]
 			}
+			// skip the next entry
+			i++
+		}
+		if cfg.setComment {
+			l2[len(l2)-1].Comment = cfg.comment
 		}
 	}
 
@@ -303,6 +315,7 @@ func promptYN(msg string, defaultYes bool) bool {
 
 	fmt.Print(msg)
 	r, err := tt.ReadRune()
+	fmt.Print("\n")
 	if err == nil {
 		s := strings.ToLower(string(r))
 		if s == "y" {
@@ -311,7 +324,6 @@ func promptYN(msg string, defaultYes bool) bool {
 			return false
 		}
 	}
-	fmt.Print("\n")
 	return defaultYes
 }
 
