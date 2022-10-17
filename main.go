@@ -57,26 +57,68 @@ func run() (err error) {
 	switch cmd {
 
 	case "ls": // list the contents of the archive
-		path := getArg(1)
-		if path == "" {
-			path = "."
+		a := args[1:]
+		if len(a) == 0 {
+			a = append(a, ".")
 		}
-		err = cmdLs(path)
+		for _, p := range a {
+			var ss *saveFileSelector
+			ss, err = NewSaveFileSelector(p)
+			if err != nil {
+				return
+			}
+			err = cmdLs(ss)
+			if err != nil {
+				return
+			}
+		}
 
 	case "cp": // copy savefile between archives
-		src, dest := getArg(1), getArg(2)
-		if src == "" {
-			err = fmt.Errorf("please give a source filename and/or an #id")
+
+		a := args[1:]
+		if len(a) < 2 {
+			err = fmt.Errorf("please set source filenames and a destination filename and/or #id")
 			return
 		}
-		if dest == "" {
-			err = fmt.Errorf("please give a dest filename and/or an #id")
+
+		// the last arg is the destination file
+		destFile, a := a[len(a)-1], a[:len(a)-1]
+		var destSS *saveFileSelector
+		destSS, err = NewSaveFileSelector(destFile)
+		if err != nil {
 			return
 		}
-		err = cmdCp(src, dest)
+
+		// all other args are the source files
+		srcSS := make([]*saveFileSelector, len(a))
+		for i, s := range a {
+			srcSS[i], err = NewSaveFileSelector(s)
+			if err != nil {
+				return
+			}
+		}
+
+		err = cmdCp(srcSS, destSS)
 
 	//case "mv":	// move savefile
-	//case "rm":	// remove savefile
+
+	case "rm": // remove savefile
+		a := args[1:]
+		if len(a) == 0 {
+			err = fmt.Errorf("please provide a filename and/or #id")
+			return
+		}
+		for _, p := range a {
+			var ss *saveFileSelector
+			ss, err = NewSaveFileSelector(p)
+			if err != nil {
+				return
+			}
+			err = cmdRm(ss)
+			if err != nil {
+				return
+			}
+		}
 
 	case "d", "e": // "d" and "e" is hidden commands for decoding and encoding lzstring file
 		src, dest := getArg(1), getArg(2)

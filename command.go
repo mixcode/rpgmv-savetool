@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -83,14 +84,10 @@ func printAlignedLines(lines []string, sep string) {
 }
 
 // List savefiles
-func cmdLs(path string) (err error) {
+// func cmdLs(path string) (err error) {
+func cmdLs(ss *saveFileSelector) (err error) {
 
-	path, idList, openStart, err := splitIndex(path)
-	if err != nil {
-		return
-	}
-
-	_, saveEntry, err := readSaveAtPath(path, true)
+	saveEntry, err := ss.readSaveAtPath(true, false)
 	if err != nil {
 		return
 	}
@@ -98,28 +95,28 @@ func cmdLs(path string) (err error) {
 	// TODO: show comments if cfg.verbose is set
 	// TODO: terminal-aligned texts
 
+	title := ""
+	if len(saveEntry) > 0 {
+		var ie *rpgMvSaveIndexEntry
+		ie, err = saveEntry[0].indexEntry()
+		if err != nil {
+			return
+		}
+		title = ie.Title
+	}
+
+	fmt.Printf("%s", ss.NormalizedPath)
+	if title != "" {
+		fmt.Printf(" %s", title)
+	}
+	fmt.Println()
+
 	lines := make([]string, 0)
 	lines = append(lines, // label
 		//"id\000savetime\000playtime\000char\000title\000map",
 		"id\000savetime\000playtime\000char\000gold\000map",
 	)
 	for _, en := range saveEntry {
-
-		if en.Id < openStart {
-			if len(idList) == 0 {
-				// list is empty
-				continue
-			}
-			for len(idList) > 0 && idList[0] < en.Id {
-				// the first entry inexists
-				idList = idList[1:]
-			}
-			if len(idList) == 0 || idList[0] != en.Id {
-				// the first entry is larger than this
-				continue
-			}
-			idList = idList[1:]
-		}
 		ie, e := en.indexEntry()
 		if e != nil {
 			continue
@@ -145,164 +142,109 @@ func cmdLs(path string) (err error) {
 	return
 }
 
-type copyMap struct {
-	From, To int
-	Save     *saveEntry
-}
-
-// sequence emitter
-type idEmit struct {
-	LList, RList           []int
-	LOpenStart, ROpenStart int
-	N                      int
-}
-
-func (em *idEmit) Next() (L, R int, ok bool) {
-	ok = true
-	if em.N < len(em.LList) {
-		L = em.LList[em.N]
-	} else {
-		if em.LOpenStart == idNotOpen {
-			ok = false
-			return
-		}
-		L = em.LOpenStart
-		em.LOpenStart++
-	}
-	if em.N < len(em.RList) {
-		R = em.RList[em.N]
-	} else {
-		if em.ROpenStart == idNotOpen {
-			ok = false
-			return
-		}
-		R = em.ROpenStart
-		em.ROpenStart++
-	}
-	em.N++
-	return
-}
-
-// open two save file and get mapping between two list
-func selectEntryMap(src, dest string) (normalizedSrc, normlizedDest string, srcList, destList []*saveEntry, sel []copyMap, err error) {
-
-	src, srcId, srcOpenStart, err := splitIndex(src)
-	if err != nil {
-		return
-	}
-	dest, destId, destOpenStart, err := splitIndex(dest)
+// remove savefiles
+func cmdRm(ss *saveFileSelector) (err error) {
+	// read all savedata at dest savefile
+	/*
+		ssAll := *ss
+		ssAll.IdList, ssAll.OpenStart = nil, 0
+		ssAll.ResetId()
+		entries, err := ssAll.readSaveAtPath(false)
+	*/
+	entries, err := ss.readSaveAtPath(false, true)
 	if err != nil {
 		return
 	}
 
-	// check index count
-	if destOpenStart != idNotOpen {
-		if srcOpenStart == idNotOpen || len(srcId) > len(destId) {
-			err = ErrInvalidId
-			return
-		}
-	}
-
-	src, srcEntry, err := readSaveAtPath(src, false)
-	if err != nil {
-		return
-	}
-	srcMap := make(map[int]*saveEntry)
-	for _, e := range srcEntry {
-		srcMap[e.Id] = e
-	}
-
-	dest, destEntry, e := readSaveAtPath(dest, false)
-	if e != nil {
-		destEntry = make([]*saveEntry, 0)
-	}
-
-	// select files from src
-	emitter := &idEmit{
-		LList:      srcId,
-		LOpenStart: srcOpenStart,
-		RList:      destId,
-		ROpenStart: destOpenStart,
-	}
-	selection := make([]copyMap, 0)
-	for {
-		l, r, ok := emitter.Next()
-		if !ok {
-			break
-		}
-		for len(srcEntry) > 0 && srcEntry[0].Id < l {
-			srcEntry = srcEntry[1:]
-		}
-		if len(srcEntry) == 0 {
-			break
-		}
-		if srcEntry[0].Id == l {
-			selection = append(selection, copyMap{From: l, To: r, Save: srcEntry[0]})
-			srcEntry = srcEntry[1:]
-		}
-	}
-
-	return src, dest, srcEntry, destEntry, selection, nil
-}
-
-// copy a file
-func cmdCp(src, dest string) (err error) {
-
-	srcName, destName, _, destEntry, cMap, err := selectEntryMap(src, dest)
-	if err != nil {
-		return
-	}
-
-	//srcName, _, _, _ := splitIndex(src)
-	//destName, _, _, _ := splitIndex(dest)
-
-	verboseCopyFrom := make(map[int]int)
-
-	// change ID of entries to be copied
-	copyEntry := make([]*saveEntry, len(cMap))
-	for i, e := range cMap {
-		copyEntry[i] = e.Save
-		copyEntry[i].Id = e.To
-		verboseCopyFrom[e.To] = e.From
-	}
-
-	// merge dest with selection
-	l := mergeSort(destEntry, copyEntry, func(i, j int) bool { return destEntry[i].Id <= copyEntry[j].Id })
-
-	// check duplicates
-	l2 := make([]*saveEntry, 0)
-	for i := 0; i < len(l); i++ {
-		l2 = append(l2, l[i])
-		if cfg.verbose {
-			idTo := l[i].Id
-			idFrom, copyOk := verboseCopyFrom[idTo]
-			if copyOk {
-				fmt.Printf("copying %s#%d to %s#%d\n", srcName, idFrom, destName, idTo)
+	// select non-deleting entires
+	ss.ResetId()
+	newSave := make([]*saveEntry, 0)
+	nextId, removing := ss.NextId()
+	for _, e := range entries {
+		if e.Id == nextId {
+			// remove ID matched; skip without append to the new entry
+			if cfg.verbose {
+				fmt.Printf("removing %s#%d\n", ss.NormalizedPath, e.Id)
 			}
+			nextId, removing = ss.NextId()
+			continue
 		}
-		if i < len(l)-1 && l[i].Id == l[i+1].Id {
-			overwrite := false
-			if cfg.force {
-				overwrite = true
-			} else {
-				// show an overwrite prompt
-				overwrite = promptYN(fmt.Sprintf("Overwrite #%d? (y/N) ", l[i].Id), false)
-			}
-			if overwrite {
-				// overwrite the last added entry
-				l2[len(l2)-1] = l[i+1]
-			}
-			// skip the next entry
-			i++
+		if !removing || e.Id < nextId {
+			// keep the savedata
+			newSave = append(newSave, e)
+			continue
 		}
-		if cfg.setComment {
-			l2[len(l2)-1].Comment = cfg.comment
+		for nextId < e.Id && removing { // get the next remove ID
+			nextId, removing = ss.NextId()
 		}
 	}
 
 	// save to file
-	err = writeSaveToPath(dest, l2, cfg.rawJson, cfg.prettyJson)
+	err = writeSaveToPath(ss.NormalizedPath, newSave, cfg.rawJson, cfg.prettyJson)
+	return
+}
 
+// copy savedata.
+func cmdCp(src []*saveFileSelector, dest *saveFileSelector) (err error) {
+
+	// read all savedata at dest savefile
+	/*
+		destAll := *dest
+		destAll.IdList, destAll.OpenStart = nil, 0
+		destAll.ResetId()
+		destEntry, _ := destAll.readSaveAtPath(false)
+	*/
+	destEntry, _ := dest.readSaveAtPath(false, true)
+
+	// merge src savefiles into the dest savefile
+	dest.ResetId()
+	newSave := make([]*saveEntry, 0)
+	for _, ss := range src {
+		var srcEntry []*saveEntry
+		srcEntry, err = ss.readSaveAtPath(false, false)
+		if err != nil {
+			return
+		}
+		for _, en := range srcEntry {
+			nextId, ok := dest.NextId()
+			if !ok {
+				err = errors.New("too many source savefiles")
+				return
+			}
+			for len(destEntry) > 0 && destEntry[0].Id < nextId {
+				// keep the entries that not contained in the overwrite id list
+				newSave = append(newSave, destEntry[0])
+				destEntry = destEntry[1:]
+			}
+			if len(destEntry) > 0 && destEntry[0].Id == nextId {
+				// duplicated ID
+				overwrite := false
+				if cfg.force {
+					overwrite = true
+				} else {
+					// show an overwrite prompt
+					overwrite = promptYN(fmt.Sprintf("Overwrite #%d with %s#%d? (y/N) ", nextId, ss.NormalizedPath, en.Id), false)
+				}
+				if !overwrite {
+					// keep the old entry
+					newSave = append(newSave, destEntry[0])
+					destEntry = destEntry[1:]
+					continue
+				}
+				// overwriting; skip the existing entry
+				destEntry = destEntry[1:]
+			}
+			// copy a source entry to dest
+			if cfg.verbose {
+				fmt.Printf("copying %s#%d to %s#%d\n", ss.NormalizedPath, en.Id, dest.NormalizedPath, nextId)
+			}
+			en.Id = nextId
+			newSave = append(newSave, en)
+		}
+	}
+
+	// save to file
+	err = writeSaveToPath(dest.NormalizedPath, newSave, cfg.rawJson, cfg.prettyJson)
 	return
 }
 
@@ -325,30 +267,4 @@ func promptYN(msg string, defaultYes bool) bool {
 		}
 	}
 	return defaultYes
-}
-
-func mergeSort[T any](l, r []T, leftFirst func(i, j int) bool) []T {
-	newList := make([]T, len(l)+len(r))
-	i, j, k := 0, 0, 0
-	for i < len(l) && j < len(r) {
-		if leftFirst(i, j) {
-			newList[k] = l[i]
-			i++
-		} else {
-			newList[k] = r[j]
-			j++
-		}
-		k++
-	}
-	for i < len(l) {
-		newList[k] = l[i]
-		i++
-		k++
-	}
-	for j < len(r) {
-		newList[k] = r[j]
-		j++
-		k++
-	}
-	return newList
 }
