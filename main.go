@@ -11,7 +11,10 @@ import (
 )
 
 type config struct {
-	force      bool // force overwrite
+	force bool // force overwrite
+
+	keepGap bool // keep gap between savefile IDs
+
 	rawJson    bool // save raw json (if possible)
 	prettyJson bool // save pretty formatted json
 
@@ -28,6 +31,7 @@ var (
 	// gloval config
 	cfg = config{
 		force:         false,
+		keepGap:       true,
 		rawJson:       false,
 		prettyJson:    false,
 		useDefaultExt: true,
@@ -73,7 +77,7 @@ func run() (err error) {
 			}
 		}
 
-	case "cp": // copy savefile between archives
+	case "cp", "mv": // copy or move savefile between archives
 
 		a := args[1:]
 		if len(a) < 2 {
@@ -97,10 +101,15 @@ func run() (err error) {
 				return
 			}
 		}
-
-		err = cmdCp(srcSS, destSS)
-
-	//case "mv":	// move savefile
+		if cmd == "cp" {
+			err = cmdCp(srcSS, destSS)
+		} else if cmd == "mv" {
+			if len(srcSS) == 1 && destSS.Path == "" {
+				// if the filename of dest path is omitted, then use the same filename with the source.
+				destSS.Path = srcSS[0].Path
+			}
+			err = cmdMv(srcSS, destSS)
+		}
 
 	case "rm": // remove savefile
 		a := args[1:]
@@ -180,12 +189,14 @@ func main() {
 	fs := flag.NewFlagSet("cmd", flag.ContinueOnError)
 
 	fs.BoolVar(&cfg.force, "f", cfg.force, "Force overwrite")
+	fs.BoolVar(&cfg.keepGap, "g", cfg.keepGap, "Keep gaps between savefile IDs")
 	fs.BoolVar(&cfg.verbose, "v", cfg.verbose, "verbose mode")
 	fs.BoolVar(&cfg.useDefaultExt, "x", cfg.useDefaultExt, fmt.Sprintf("add extension (%s) to file if no extension found", extRpgArchive))
 	fs.StringVar(&cfg.comment, "c", "", "set comment to modifying savefiles")
 
 	// alternative flags
 	fs.Bool("no-default-ext", false, "same as '-x=false'")
+	fs.Bool("no-gap", false, "same as '-g=false'")
 	//fs.Bool("verbose", cfg.verbose, "")
 
 	if help {
@@ -207,6 +218,10 @@ func main() {
 		case "no-default-ext":
 			if f.Value.String() == "true" {
 				cfg.useDefaultExt = false
+			}
+		case "no-gap":
+			if f.Value.String() == "true" {
+				cfg.keepGap = false
 			}
 		case "verbose":
 			//fs.Lookup("v").Value.Set(f.Value.String())

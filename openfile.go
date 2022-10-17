@@ -352,9 +352,9 @@ type saveFileSelector struct {
 
 	// ID list generator
 	IdList    []int // list of individual IDs
-	OpenStart int   //
+	OpenStart int   // the first id of open-ended id list. if idNotOpen, then there is no id list
 
-	currentIdList []int
+	currentIdList []int // internal vars for NextId()
 	currentOpen   int
 }
 
@@ -377,7 +377,7 @@ func NewSaveFileSelector(pathAndId string) (*saveFileSelector, error) {
 	}, nil
 }
 
-// Get next id
+// generate the next id.
 func (ss *saveFileSelector) NextId() (id int, ok bool) {
 	ok = true
 	if len(ss.currentIdList) > 0 {
@@ -397,14 +397,14 @@ func (ss *saveFileSelector) NextId() (id int, ok bool) {
 	return
 }
 
-// reset the id
+// reset the id generation.
 func (ss *saveFileSelector) ResetId() {
 	ss.currentIdList, ss.currentOpen = ss.IdList, ss.OpenStart
 }
 
 // parse filename with ID numbers separated with a # mark.
 // ID is comma-separated, hyphen-connected increasing numbers.
-// openStartId contains the last id entry when it end with a hyphen
+// openStartId contains the last id entry when it ends with a hyphen.
 // ex) "FILENAME#1,2,7,8-9,13,25-" -> id=[1,2,7,8,9,13], openStart=25
 func parsePathIndex(namepath string) (path string, id []int, openStartId int, err error) {
 	a := strings.Split(namepath, "#")
@@ -526,7 +526,9 @@ func detectSaveType(inPath string) (path string, isRpgMvSave bool, err error) {
 	return inPath, false, nil
 }
 
-// open the save at the path, autodetecting the save type
+// open the save at the path, autodetecting the save type,
+// if indexOnly is true, then actualy save body is not loaded for Rpgmaker Mv savefiles.
+// if allEntry is true, then ss.IdList and ss.OpenStart is ignored and all entries are loaded
 func (ss *saveFileSelector) readSaveAtPath(indexOnly bool, allEntry bool) (save []*saveEntry, err error) {
 
 	if allEntry && (len(ss.IdList) > 0 || ss.OpenStart != idNotOpen) { // read all entry
@@ -536,7 +538,8 @@ func (ss *saveFileSelector) readSaveAtPath(indexOnly bool, allEntry bool) (save 
 		tmpss.ResetId()
 		// open the file with the temporary selector
 		save, err = tmpss.readSaveAtPath(indexOnly, false)
-		ss.NormalizedPath = tmpss.NormalizedPath
+		// store parsed path info
+		ss.NormalizedPath, ss.IsRpgMvSave = tmpss.NormalizedPath, tmpss.IsRpgMvSave
 		return
 	}
 
@@ -544,9 +547,8 @@ func (ss *saveFileSelector) readSaveAtPath(indexOnly bool, allEntry bool) (save 
 	if err != nil {
 		return
 	}
-	ss.IsRpgMvSave = rpgMvSave
+	ss.NormalizedPath, ss.IsRpgMvSave = path, rpgMvSave
 	if rpgMvSave {
-		ss.NormalizedPath = path
 		if indexOnly {
 			save, err = ss.readRpgMvSaveIndex()
 			return
@@ -555,26 +557,30 @@ func (ss *saveFileSelector) readSaveAtPath(indexOnly bool, allEntry bool) (save 
 			return
 		}
 	}
-	ss.NormalizedPath = path
 	save, err = ss.readRpgArch()
 	return
 }
 
 // write the save to the path, autodetecting the save type
-func writeSaveToPath(path string, save []*saveEntry, rawJson, pretty bool) (err error) {
-	path, _, _, _ = parsePathIndex(path)
-	path, rpgMvSave, err := detectSaveType(path)
-	if err != nil {
-		return
+// func writeSaveToPath(path string, save []*saveEntry, rawJson, pretty bool) (err error) {
+func (ss *saveFileSelector) writeSaveToPath(save []*saveEntry, rawJson, pretty bool) (err error) {
+	path, rpgMvSave := ss.NormalizedPath, ss.IsRpgMvSave
+	if path == "" {
+		path, rpgMvSave, err = detectSaveType(ss.Path)
+		if err != nil {
+			return
+		}
 	}
+	//path, _, _, _ = parsePathIndex(path)
+	//path, rpgMvSave, err := detectSaveType(path)
 	if rpgMvSave {
-		//log.Printf("write rpgMvSave")
+		// write the savefiles as Rpg maker MV save directory
 		err = os.MkdirAll(path, 0644)
 		if err != nil {
 			return
 		}
 		return writeRpgMvSaveAll(path, save)
 	}
-	//log.Printf("write rpgMvArch")
+	// write the savefiles as a JSON archive
 	return writeRpgArch(path, save, rawJson, pretty)
 }

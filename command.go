@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
+	"sort"
 	"strings"
 
 	tty "github.com/mattn/go-tty"
@@ -145,12 +147,6 @@ func cmdLs(ss *saveFileSelector) (err error) {
 // remove savefiles
 func cmdRm(ss *saveFileSelector) (err error) {
 	// read all savedata at dest savefile
-	/*
-		ssAll := *ss
-		ssAll.IdList, ssAll.OpenStart = nil, 0
-		ssAll.ResetId()
-		entries, err := ssAll.readSaveAtPath(false)
-	*/
 	entries, err := ss.readSaveAtPath(false, true)
 	if err != nil {
 		return
@@ -180,7 +176,7 @@ func cmdRm(ss *saveFileSelector) (err error) {
 	}
 
 	// save to file
-	err = writeSaveToPath(ss.NormalizedPath, newSave, cfg.rawJson, cfg.prettyJson)
+	err = ss.writeSaveToPath(newSave, cfg.rawJson, cfg.prettyJson)
 	return
 }
 
@@ -188,12 +184,6 @@ func cmdRm(ss *saveFileSelector) (err error) {
 func cmdCp(src []*saveFileSelector, dest *saveFileSelector) (err error) {
 
 	// read all savedata at dest savefile
-	/*
-		destAll := *dest
-		destAll.IdList, destAll.OpenStart = nil, 0
-		destAll.ResetId()
-		destEntry, _ := destAll.readSaveAtPath(false)
-	*/
 	destEntry, _ := dest.readSaveAtPath(false, true)
 
 	// merge src savefiles into the dest savefile
@@ -205,8 +195,20 @@ func cmdCp(src []*saveFileSelector, dest *saveFileSelector) (err error) {
 		if err != nil {
 			return
 		}
+		prevId := 0
 		for _, en := range srcEntry {
-			nextId, ok := dest.NextId()
+			var nextId int
+			var ok bool
+			if cfg.keepGap {
+				for prevId < en.Id {
+					nextId, ok = dest.NextId()
+					prevId++
+				}
+			} else {
+				nextId, ok = dest.NextId()
+				prevId = nextId
+			}
+
 			if !ok {
 				err = errors.New("too many source savefiles")
 				return
@@ -244,7 +246,166 @@ func cmdCp(src []*saveFileSelector, dest *saveFileSelector) (err error) {
 	}
 
 	// save to file
-	err = writeSaveToPath(dest.NormalizedPath, newSave, cfg.rawJson, cfg.prettyJson)
+	err = dest.writeSaveToPath(newSave, cfg.rawJson, cfg.prettyJson)
+	return
+}
+
+// convert save entry list to map of id=>*saveEntry
+/*
+func mkOrderedMap(save []*saveEntry) *OrderedMap[int, *saveEntry] {
+	sm := NewOrderedMap[int, *saveEntry]()
+	for _, e := range save {
+		sm.Append(e.Id, e)
+	}
+	return sm
+}
+*/
+func mkMap(save []*saveEntry) map[int]*saveEntry {
+	sm := make(map[int]*saveEntry)
+	for _, e := range save {
+		sm[e.Id] = e
+	}
+	return sm
+}
+
+// move savedata between files.
+func cmdMv(src []*saveFileSelector, dest *saveFileSelector) (err error) {
+
+	// all savedata
+	saveFiles := make(map[string]map[int]*saveEntry)
+
+	// list of open save file
+	srcFiles := make(map[string]*saveFileSelector)
+
+	// read all savedata at dest savefile
+	destEntry, _ := dest.readSaveAtPath(false, true)
+	destM := mkMap(destEntry)
+	saveFiles[dest.NormalizedPath] = destM
+
+	// merge src savefiles into the dest savefile
+	dest.ResetId()
+
+	newSave := make([]*saveEntry, 0) // map of id -> saveEntry map to be added to dest
+
+	for _, ss := range src {
+
+		// open the save file
+		var srcEntry []*saveEntry
+		srcEntry, err = ss.readSaveAtPath(false, true)
+		if err != nil {
+			return
+		}
+
+		// check if the save file is already in the cache list
+		srcM, ok := saveFiles[ss.NormalizedPath]
+		if !ok {
+			srcM = mkMap(srcEntry)
+			srcFiles[ss.NormalizedPath] = ss
+		}
+		maxSrcId := 0
+		for _, e := range srcM {
+			if e.Id > maxSrcId {
+				maxSrcId = e.Id
+			}
+		}
+
+		sameFile := (ss.NormalizedPath == dest.NormalizedPath)
+
+		// copy individual savefiles
+		ss.ResetId()
+		prevId := -1
+		for {
+			stepCounter := 1 // distance between previous dest ID to next dest ID
+			// get next srcId from srcId list
+			srcId, srcOk := ss.NextId()
+			if !srcOk || srcId > maxSrcId {
+				break
+			}
+			if prevId != -1 {
+				if cfg.keepGap {
+					stepCounter = srcId - prevId
+				}
+			}
+			prevId = srcId
+
+			// get save entry of the id
+			se, ok := srcM[srcId]
+			if !ok { // no entry found at the id
+				prevId -= stepCounter // rewind the distance
+				continue
+			}
+
+			var destId int
+			var destOk bool
+			if cfg.keepGap {
+				for stepCounter > 0 {
+					destId, destOk = dest.NextId()
+					stepCounter--
+				}
+			} else {
+				destId, destOk = dest.NextId()
+			}
+			if !destOk {
+				err = fmt.Errorf("too many source savefiles")
+				return
+			}
+
+			overwrite := true
+			if _, ok := destM[destId]; ok {
+				// destination file has an entry with the same ID
+				if cfg.force {
+					overwrite = true
+				} else {
+					// show an overwrite prompt
+					overwrite = promptYN(fmt.Sprintf("Overwrite #%d with %s#%d? (y/N) ", destId, ss.NormalizedPath, srcId), false)
+				}
+			}
+
+			if overwrite {
+				if cfg.verbose {
+					fmt.Printf("moving %s#%d to #%d\n", ss.NormalizedPath, srcId, destId)
+				}
+				se.Id = destId
+				newSave = append(newSave, se)
+				delete(srcM, srcId)
+				if sameFile { // the src and dest is same file
+					delete(destM, srcId)
+				}
+			}
+		}
+		// save savedata of a source file
+		saveFiles[ss.NormalizedPath] = srcM
+
+	}
+
+	// write move destination file
+	for _, e := range destM {
+		newSave = append(newSave, e)
+	}
+	sort.Slice(newSave, func(i, j int) bool { return newSave[i].Id < newSave[j].Id })
+	err = dest.writeSaveToPath(newSave, cfg.rawJson, cfg.prettyJson)
+	if err != nil {
+		return
+	}
+
+	// write modified source files
+	for name, ss := range srcFiles {
+		if name == dest.NormalizedPath {
+			continue
+		}
+		sm := saveFiles[name]
+		save := make([]*saveEntry, 0, len(sm))
+		for _, e := range sm {
+			save = append(save, e)
+		}
+		sort.Slice(save, func(i, j int) bool { return save[i].Id < save[j].Id })
+		log.Printf("%v", save)
+		err = ss.writeSaveToPath(save, cfg.rawJson, cfg.prettyJson)
+		if err != nil {
+			return
+		}
+	}
+
 	return
 }
 
