@@ -25,6 +25,13 @@ const (
 
 	// default extension of the archive file
 	extRpgArchive = ".rpgarch"
+
+	idSeparator = '#'
+)
+
+var (
+	idMatch       = regexp.MustCompile(`^(.*?)([#@]([\d,-]+))?$`)
+	saveFileMatch = regexp.MustCompile(`^file(\d+)\.rpgsave$`)
 )
 
 func rpgMvIndexFilename(dirpath string) string {
@@ -38,6 +45,7 @@ var (
 	ErrNoData     = errors.New("no contents")
 	ErrNotChanged = errors.New("not changed")
 	ErrInvalidId  = errors.New("invalid id")
+	//ErrIdNotFound = errors.New("id not found")
 )
 
 func readLzstringFile(filename string) (data string, err error) {
@@ -244,6 +252,39 @@ func writeRpgMvSaveAll(dirpath string, save []*saveEntry) (err error) {
 	return
 }
 
+// remove "file%d.rpgsave" files NOT contained in the save entries
+func removeUnusedRpgMvSave(dirpath string, save []*saveEntry) (err error) {
+	// list indexes
+	idmap := make(map[int]bool)
+	for _, s := range save {
+		idmap[s.Id] = true
+	}
+
+	// list files
+	fl, err := os.ReadDir(dirpath)
+	if err != nil {
+		return
+	}
+	for _, f := range fl {
+		if f.IsDir() {
+			continue
+		}
+		m := saveFileMatch.FindStringSubmatch(f.Name())
+		if m == nil {
+			continue
+		}
+		id, _ := strconv.Atoi(m[1])
+		if !idmap[id] {
+			err = os.Remove(f.Name())
+			if err != nil {
+				return
+			}
+		}
+	}
+
+	return nil
+}
+
 // .rpgarch archive file entry
 type archEntry struct {
 	Id int `json:"id"` // ID number
@@ -270,12 +311,12 @@ func (ss *saveFileSelector) readRpgArch() (save []*saveEntry, err error) {
 	}
 
 	// create savefile
-	sv := make([]*saveEntry, len(arch))
+	sv := make([]*saveEntry, 0)
 
 	// normalize index
 	ss.ResetId()
 	currentId, ok := ss.NextId()
-	for i, en := range arch {
+	for _, en := range arch {
 		for currentId < en.Id && ok {
 			currentId, ok = ss.NextId()
 		}
@@ -291,20 +332,23 @@ func (ss *saveFileSelector) readRpgArch() (save []*saveEntry, err error) {
 			Comment: en.Comment,
 		}
 		if en.IndexJson != nil {
+			// index in raw json
 			sve.IndexJson = en.IndexJson
 		} else if en.Index != "" {
-			// index is json-first
+			// index in compressed lzstring
 			jstr, e := lzstring.DecompressBase64(en.Index)
 			if e == nil && jstr != "" {
 				sve.IndexJson = []byte(jstr)
 			}
 		}
 		if en.SaveData != "" {
+			// savedata in compressed lzstring
 			sve.SaveData = en.SaveData
 		} else if en.SaveJson != nil {
+			// compress raw json to lzstring
 			sve.SaveData = lzstring.CompressToBase64(string(en.SaveJson))
 		}
-		sv[i] = sve
+		sv = append(sv, sve)
 	}
 	return sv, nil
 }
@@ -377,6 +421,14 @@ func NewSaveFileSelector(pathAndId string) (*saveFileSelector, error) {
 	}, nil
 }
 
+// make filepath with ID to be displayed
+func (ss *saveFileSelector) displayPath(id int) string {
+	if ss.IsRpgMvSave {
+		return filepath.Join(ss.NormalizedPath, fmt.Sprintf(saveFileFmt, id))
+	}
+	return fmt.Sprintf("%s%c%d", ss.NormalizedPath, idSeparator, id)
+}
+
 // generate the next id.
 func (ss *saveFileSelector) NextId() (id int, ok bool) {
 	ok = true
@@ -402,27 +454,43 @@ func (ss *saveFileSelector) ResetId() {
 	ss.currentIdList, ss.currentOpen = ss.IdList, ss.OpenStart
 }
 
-// parse filename with ID numbers separated with a # mark.
+// parse filename with ID numbers separated with a idSeparator mark.
 // ID is comma-separated, hyphen-connected increasing numbers.
 // openStartId contains the last id entry when it ends with a hyphen.
-// ex) "FILENAME#1,2,7,8-9,13,25-" -> id=[1,2,7,8,9,13], openStart=25
+// ex) "FILENAME@1,2,7,8-9,13,25-" -> id=[1,2,7,8,9,13], openStart=25
 func parsePathIndex(namepath string) (path string, id []int, openStartId int, err error) {
-	a := strings.Split(namepath, "#")
 
 	idStr := ""
-	if len(a) > 1 {
-		idStr = a[len(a)-1]
-		namepath = strings.Join(a[:len(a)-1], "#")
+	m := idMatch.FindStringSubmatch(namepath)
+	if m != nil {
+		namepath, idStr = m[1], m[3]
+	}
+
+	if namepath == "" {
+		// the current directory
+		namepath = "." + string(os.PathSeparator)
 	}
 
 	if idStr == "" || idStr == "*" {
+		// special case: treat "file%d.rpgsave" as rpgMvSave file
+		fdir, fname := filepath.Split(namepath)
+		m := saveFileMatch.FindStringSubmatch(fname)
+		if m != nil {
+			fid, _ := strconv.Atoi(m[1])
+			if fdir == "" {
+				fdir = "."
+			}
+			fdir += string(os.PathSeparator)
+			return fdir, []int{fid}, idNotOpen, nil
+		}
+
 		// list with open end
 		return namepath, nil, 1, nil
 	}
 
 	// split IDstr with commas
 	idList := make([]int, 0)
-	a = strings.Split(idStr, ",")
+	a := strings.Split(idStr, ",")
 	last := -1
 	_openStartId := idNotOpen
 	_endIsOpen := false

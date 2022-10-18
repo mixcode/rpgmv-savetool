@@ -31,11 +31,11 @@ var (
 	// gloval config
 	cfg = config{
 		force:         false,
-		keepGap:       true,
+		keepGap:       false,
 		rawJson:       false,
 		prettyJson:    false,
 		useDefaultExt: true,
-		verbose:       false,
+		verbose:       true,
 		setComment:    false,
 	}
 
@@ -81,7 +81,7 @@ func run() (err error) {
 
 		a := args[1:]
 		if len(a) < 2 {
-			err = fmt.Errorf("please set source filenames and a destination filename and/or #id")
+			err = fmt.Errorf("please set source filenames and a destination filename and/or %cid", idSeparator)
 			return
 		}
 
@@ -114,7 +114,7 @@ func run() (err error) {
 	case "rm": // remove savefile
 		a := args[1:]
 		if len(a) == 0 {
-			err = fmt.Errorf("please provide a filename and/or #id")
+			err = fmt.Errorf("please provide a filename and/or %cid", idSeparator)
 			return
 		}
 		for _, p := range a {
@@ -187,17 +187,18 @@ func main() {
 
 	// set normal flags
 	fs := flag.NewFlagSet("cmd", flag.ContinueOnError)
+	quiet := false
 
 	fs.BoolVar(&cfg.force, "f", cfg.force, "Force overwrite")
-	fs.BoolVar(&cfg.keepGap, "g", cfg.keepGap, "Keep gaps between savefile IDs")
-	fs.BoolVar(&cfg.verbose, "v", cfg.verbose, "verbose mode")
+	fs.BoolVar(&cfg.keepGap, "k", cfg.keepGap, "Keep gaps between savefile IDs")
+	//fs.BoolVar(&cfg.verbose, "v", cfg.verbose, "verbose mode")
+	fs.BoolVar(&quiet, "q", !cfg.verbose, "quiet. suppress non-error messages")
 	fs.BoolVar(&cfg.useDefaultExt, "x", cfg.useDefaultExt, fmt.Sprintf("add extension (%s) to file if no extension found", extRpgArchive))
 	fs.StringVar(&cfg.comment, "c", "", "set comment to modifying savefiles")
 
 	// alternative flags
 	fs.Bool("no-default-ext", false, "same as '-x=false'")
-	fs.Bool("no-gap", false, "same as '-g=false'")
-	//fs.Bool("verbose", cfg.verbose, "")
+	//fs.Bool("no-gap", false, "same as '-k=false'")
 
 	if help {
 		fs.Usage()
@@ -209,20 +210,24 @@ func main() {
 	fs.BoolVar(&cfg.prettyJson, "p", cfg.prettyJson, "") // write pretty-printed json when writing json
 
 	// parse flags
-	fs.Parse(flagArgs)            // parse again to enable hidden flags
+	fs.Parse(flagArgs) // parse again to enable hidden flags
+
+	cfg.verbose = !quiet
+
 	fs.Visit(func(f *flag.Flag) { // check whether each flag is set
 		switch f.Name {
 		case "c":
 			// comment has set
 			cfg.setComment = true // turn comment-modify flag ON
+
 		case "no-default-ext":
 			if f.Value.String() == "true" {
 				cfg.useDefaultExt = false
 			}
-		case "no-gap":
-			if f.Value.String() == "true" {
-				cfg.keepGap = false
-			}
+		//case "no-gap":
+		//	if f.Value.String() == "true" {
+		//		cfg.keepGap = false
+		//	}
 		case "verbose":
 			//fs.Lookup("v").Value.Set(f.Value.String())
 			cfg.verbose = (f.Value.String() == "true")
