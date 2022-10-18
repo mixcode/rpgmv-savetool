@@ -1,8 +1,14 @@
 
-# A tool to modify rpgmaker-mv save files RPGツクールMVのセーブデータをバックアップするツール
+# A tool to manage rpgmaker-mv save files  RPGツクールMVのセーブデータをバックアップするツール
 
 RPG-Maker MV save files are managed with a separated index file, 'global.rpgsave'.
 This tool copies, moves, and deletes save files with proper handling of the index file.
+
+## install
+First you need a go language installation. Then type the commandline below.
+```
+go install github.com/mixcode/rpgmv-savetool@latest
+```
 
 ## basic usage
 
@@ -36,7 +42,7 @@ rpgmv-savetool rm file10.rpgsave
 
 ## advanced
 
-The RPG maker mv save files are actually handled as a whole directory. You could designate savefiles with comma-separated list of save numbers.
+The RPG maker mv save files are actually handled as a whole directory. You could designate savefiles with comma-separated list of save slot numbers.
 
 * copy all save files to another directory
 ```
@@ -45,14 +51,12 @@ rpgmv-savetool cp ./ ../save_backup/
 
 * copy all save files to a single archive file
 ```
-# use -k to keep gaps between save numbers
+# use -k to keep gaps between save slot numbers
 rpgmv-savetool cp -k ./ backup_all.rpgarch
 
 # show contents of the backup file
 rpgmv-savetool ls backup_all.rpgarch
 ```
-
-* show contents of the archive fiel
 
 * copy save 1, 3, 5 to a backup file's save slot #11, 12, 13
 ```
@@ -74,3 +78,6 @@ rpgmv-savetool mv -k ./#1-5 ./#11-
 rpgmv-savetool rm ./#20-
 ```
 
+## TODO
+* 日本語ローカリゼーション
+* -hで詳細の説明
