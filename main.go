@@ -5,10 +5,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	lzstring "github.com/mixcode/golib-lzstring"
 )
+
+//
+// TODO: add localization
+//
 
 type config struct {
 	force bool // force overwrite
@@ -54,7 +59,7 @@ func getArg(n int) string {
 func run() (err error) {
 	cmd := getArg(0)
 	if cmd == "" {
-		err = errors.New("no command given. valid commands are 'ls', 'cp', 'mv', 'rm'. use -h for help")
+		err = fmt.Errorf("no command given. valid commands are 'ls', 'cp', 'mv', 'rm'. use -h for help")
 		return
 	}
 
@@ -65,11 +70,14 @@ func run() (err error) {
 		if len(a) == 0 {
 			a = append(a, ".")
 		}
-		for _, p := range a {
+		for i, p := range a {
 			var ss *saveFileSelector
 			ss, err = NewSaveFileSelector(p)
 			if err != nil {
 				return
+			}
+			if i > 0 {
+				fmt.Println()
 			}
 			err = cmdLs(ss)
 			if err != nil {
@@ -162,8 +170,11 @@ func run() (err error) {
 	return
 }
 
-func main() {
-	var err error
+var (
+	ErrShowHelp = errors.New("help shown")
+)
+
+func parseFlags() (err error) {
 
 	// separate args and flags
 	flagArgs := make([]string, 0)
@@ -187,6 +198,7 @@ func main() {
 
 	// set normal flags
 	fs := flag.NewFlagSet("cmd", flag.ContinueOnError)
+
 	quiet := false
 
 	fs.BoolVar(&cfg.force, "f", cfg.force, "Force overwrite")
@@ -200,19 +212,25 @@ func main() {
 	fs.Bool("no-default-ext", false, "same as '-x=false'")
 	//fs.Bool("no-gap", false, "same as '-k=false'")
 
+	// show helps
 	if help {
 		fs.Usage()
-		os.Exit(0)
+		return ErrShowHelp
 	}
 
 	// add hidden flags
 	fs.BoolVar(&cfg.rawJson, "j", cfg.rawJson, "")       // write savefiles as raw json, rather than encrypted lzstring
 	fs.BoolVar(&cfg.prettyJson, "p", cfg.prettyJson, "") // write pretty-printed json when writing json
 
-	// parse flags
-	fs.Parse(flagArgs) // parse again to enable hidden flags
+	fs.SetOutput(io.Discard) // disable output to prevent error and usage printing, which may reveals hidden commands.
 
-	cfg.verbose = !quiet
+	// parse flags
+	err = fs.Parse(flagArgs)
+	if err != nil {
+		return
+	}
+
+	cfg.verbose = !quiet // verbose is inverse of the quiet flag
 
 	fs.Visit(func(f *flag.Flag) { // check whether each flag is set
 		switch f.Name {
@@ -233,11 +251,19 @@ func main() {
 			cfg.verbose = (f.Value.String() == "true")
 		}
 	})
+	return nil
+}
 
-	// execute the main function
-	err = run()
+func main() {
 
-	if err != nil {
+	err := parseFlags()
+
+	if err == nil {
+		// execute the main function
+		err = run()
+	}
+
+	if err != nil && err != ErrShowHelp {
 		//fmt.Fprintln(os.Stderr, "Error: "+err.Error())
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)

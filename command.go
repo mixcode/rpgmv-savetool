@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -85,7 +84,6 @@ func printAlignedLines(lines []string, sep string) {
 }
 
 // List savefiles
-// func cmdLs(path string) (err error) {
 func cmdLs(ss *saveFileSelector) (err error) {
 
 	saveEntry, err := ss.readSaveAtPath(true, false)
@@ -226,7 +224,7 @@ func cmdCp(src []*saveFileSelector, dest *saveFileSelector) (err error) {
 			}
 
 			if !ok {
-				err = errors.New("too many source savefiles")
+				err = fmt.Errorf("too many source savefiles")
 				return
 			}
 			for len(destEntry) > 0 && destEntry[0].Id < nextId {
@@ -281,6 +279,15 @@ func cmdCp(src []*saveFileSelector, dest *saveFileSelector) (err error) {
 
 // move savedata between files.
 func cmdMv(src []*saveFileSelector, dest *saveFileSelector) (err error) {
+
+	// convert save entry list to map of id=>*saveEntry
+	mkMap := func(save []*saveEntry) map[int]*saveEntry {
+		sm := make(map[int]*saveEntry)
+		for _, e := range save {
+			sm[e.Id] = e
+		}
+		return sm
+	}
 
 	// all savedata
 	saveFiles := make(map[string]map[int]*saveEntry)
@@ -437,6 +444,7 @@ func cmdMv(src []*saveFileSelector, dest *saveFileSelector) (err error) {
 	return
 }
 
+// show Yes/No prompt
 func promptYN(msg string, defaultYes bool) bool {
 	tt, err := tty.Open()
 	if err != nil {
@@ -456,19 +464,4 @@ func promptYN(msg string, defaultYes bool) bool {
 		}
 	}
 	return defaultYes
-}
-
-/*
-func joinPathId(path string, id int) string {
-	return fmt.Sprintf("%s%c%d", path, idSeparator, id)
-}
-*/
-
-// convert save entry list to map of id=>*saveEntry
-func mkMap(save []*saveEntry) map[int]*saveEntry {
-	sm := make(map[int]*saveEntry)
-	for _, e := range save {
-		sm[e.Id] = e
-	}
-	return sm
 }

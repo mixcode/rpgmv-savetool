@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -17,35 +16,32 @@ import (
 )
 
 const (
-	saveGlobal  = "global.rpgsave" // save index file
-	saveFileFmt = "file%d.rpgsave" // individual save file
+	mvSaveGlobal  = "global.rpgsave" // rpg maker mv save index file
+	mvSaveFileFmt = "file%d.rpgsave" // individual rpg maker mv save file
 
-	// the id that represents not-a-open-range
-	idNotOpen = math.MaxInt
+	extRpgArchive = ".rpgarch" // default extension of the archive file
 
-	// default extension of the archive file
-	extRpgArchive = ".rpgarch"
+	idSeparator = '#' // separator between filename and id
 
-	idSeparator = '#'
+	idNotOpenEnded = math.MaxInt // the id that represents not-a-open-range
 )
 
 var (
-	idMatch       = regexp.MustCompile(`^(.*?)([#@]([\d,-]+))?$`)
-	saveFileMatch = regexp.MustCompile(`^file(\d+)\.rpgsave$`)
+	idMatch       = regexp.MustCompile(`^(.*?)([#@]([\d,-]+))?$`) // FILENAME.EXT#id,id-id,...
+	saveFileMatch = regexp.MustCompile(`^file(\d+)\.rpgsave$`)    // file[ID].rpgsave
 )
 
 func rpgMvIndexFilename(dirpath string) string {
-	return filepath.Join(dirpath, saveGlobal)
+	return filepath.Join(dirpath, mvSaveGlobal)
 }
 func rpgMvSaveFilename(dirpath string, id int) string {
-	return filepath.Join(dirpath, fmt.Sprintf(saveFileFmt, id))
+	return filepath.Join(dirpath, fmt.Sprintf(mvSaveFileFmt, id))
 }
 
 var (
 	ErrNoData     = errors.New("no contents")
 	ErrNotChanged = errors.New("not changed")
 	ErrInvalidId  = errors.New("invalid id")
-	//ErrIdNotFound = errors.New("id not found")
 )
 
 func readLzstringFile(filename string) (data string, err error) {
@@ -85,7 +81,7 @@ func (ie *rpgMvSaveIndexEntry) timestamp() time.Time {
 	return time.UnixMilli(ie.Timestamp)
 }
 
-// A save entry
+// A generic save entry
 type saveEntry struct {
 	Id int // ID number
 
@@ -109,7 +105,6 @@ func (se *saveEntry) indexEntry() (indexEntry *rpgMvSaveIndexEntry, err error) {
 }
 
 // read rpg maker mv save directory, index only
-// func readRpgMvSaveIndex(dirpath string) (save []*saveEntry, err error) {
 func (ss *saveFileSelector) readRpgMvSaveIndex() (save []*saveEntry, err error) {
 	// read global.rpgsave
 	lzs, err := readLzstringFile(rpgMvIndexFilename(ss.Path))
@@ -159,7 +154,6 @@ func (ss *saveFileSelector) readRpgMvSaveIndex() (save []*saveEntry, err error) 
 }
 
 // read rpg maker mv save files
-// func readRpgMvSaveAll(dirpath string) (save []*saveEntry, err error) {
 func (ss *saveFileSelector) readRpgMvSaveAll() (save []*saveEntry, err error) {
 	// read global.save
 	s, err := ss.readRpgMvSaveIndex()
@@ -188,15 +182,11 @@ func writeRpgMvSaveIndex(save []*saveEntry, dirpath string) (err error) {
 		if data == nil {
 			continue
 		}
-		//log.Printf("id %d / %d", e.Id, len(sIndex))
 		for e.Id > len(sIndex) {
 			sIndex = append(sIndex, []byte("null"))
 		}
 		sIndex = append(sIndex, data)
 	}
-	//for i, e := range sIndex { //!!DEBUG
-	//	log.Printf("save %d: %s", i, string(e))
-	//}
 	js, err := json.Marshal(sIndex)
 	if err != nil {
 		return
@@ -206,7 +196,7 @@ func writeRpgMvSaveIndex(save []*saveEntry, dirpath string) (err error) {
 	return os.WriteFile(indexFile, []byte(enc), 0644)
 }
 
-// write savedata to rpg maker mv save directory
+// write individual savedata files to rpg maker mv save directory
 func writeRpgMvSave(dirpath string, save *saveEntry) (filename string, err error) {
 	filename = rpgMvSaveFilename(dirpath, save.Id)
 	if save.SaveData == "" {
@@ -226,7 +216,7 @@ func writeRpgMvSave(dirpath string, save *saveEntry) (filename string, err error
 	return
 }
 
-// write savedata to rpg maker mv save directory
+// write index and savedata files to rpg maker mv save directory
 func writeRpgMvSaveAll(dirpath string, save []*saveEntry) (err error) {
 	// write index
 	err = writeRpgMvSaveIndex(save, dirpath)
@@ -240,7 +230,7 @@ func writeRpgMvSaveAll(dirpath string, save []*saveEntry) (err error) {
 		switch e {
 		case ErrNoData:
 		case ErrNotChanged:
-			log.Printf("not changed")
+			//log.Printf("not changed")
 		case nil:
 			// do nothing
 		default:
@@ -252,7 +242,7 @@ func writeRpgMvSaveAll(dirpath string, save []*saveEntry) (err error) {
 	return
 }
 
-// remove "file%d.rpgsave" files NOT contained in the save entries
+// remove individual savefiles that are NOT contained in the save entries
 func removeUnusedRpgMvSave(dirpath string, save []*saveEntry) (err error) {
 	// list indexes
 	idmap := make(map[int]bool)
@@ -391,10 +381,11 @@ var (
 
 // a struct to hold save filename and index
 type saveFileSelector struct {
-	Path, NormalizedPath string
-	IsRpgMvSave          bool
+	Path           string // input path
+	NormalizedPath string // normalized path created when opening the file
+	IsRpgMvSave    bool   // true if the NormalizedPath points toa rpg maker MV save directory
 
-	// ID list generator
+	// ID list generator. usually the parsed result of #ID,ID,ID-... string
 	IdList    []int // list of individual IDs
 	OpenStart int   // the first id of open-ended id list. if idNotOpen, then there is no id list
 
@@ -402,7 +393,7 @@ type saveFileSelector struct {
 	currentOpen   int
 }
 
-// init the savefile selector
+// init the savefile selector with filepath and id string
 func NewSaveFileSelector(pathAndId string) (*saveFileSelector, error) {
 	path, id, openStart, err := parsePathIndex(pathAndId)
 	if err != nil {
@@ -421,10 +412,10 @@ func NewSaveFileSelector(pathAndId string) (*saveFileSelector, error) {
 	}, nil
 }
 
-// make filepath with ID to be displayed
+// make filepath with an ID to be displayed
 func (ss *saveFileSelector) displayPath(id int) string {
 	if ss.IsRpgMvSave {
-		return filepath.Join(ss.NormalizedPath, fmt.Sprintf(saveFileFmt, id))
+		return rpgMvSaveFilename(ss.NormalizedPath, id)
 	}
 	return fmt.Sprintf("%s%c%d", ss.NormalizedPath, idSeparator, id)
 }
@@ -437,9 +428,9 @@ func (ss *saveFileSelector) NextId() (id int, ok bool) {
 		id = ss.currentIdList[0]
 		ss.currentIdList = ss.currentIdList[1:]
 	} else {
-		if ss.currentOpen == idNotOpen {
+		if ss.currentOpen == idNotOpenEnded {
 			// the list is not open ended
-			id = idNotOpen
+			id = idNotOpenEnded
 			ok = false
 			return
 		}
@@ -456,8 +447,8 @@ func (ss *saveFileSelector) ResetId() {
 
 // parse filename with ID numbers separated with a idSeparator mark.
 // ID is comma-separated, hyphen-connected increasing numbers.
-// openStartId contains the last id entry when it ends with a hyphen.
-// ex) "FILENAME@1,2,7,8-9,13,25-" -> id=[1,2,7,8,9,13], openStart=25
+// openStartId contains the last id entry when it ends with a hyphen. idNotOpen if the list is not open-ended.
+// ex) "FILENAME#1,2,7,8-10,13,25-" -> id=[1,2,7,8,9,10,13], openStart=25
 func parsePathIndex(namepath string) (path string, id []int, openStartId int, err error) {
 
 	idStr := ""
@@ -481,7 +472,7 @@ func parsePathIndex(namepath string) (path string, id []int, openStartId int, er
 				fdir = "."
 			}
 			fdir += string(os.PathSeparator)
-			return fdir, []int{fid}, idNotOpen, nil
+			return fdir, []int{fid}, idNotOpenEnded, nil
 		}
 
 		// list with open end
@@ -492,16 +483,16 @@ func parsePathIndex(namepath string) (path string, id []int, openStartId int, er
 	idList := make([]int, 0)
 	a := strings.Split(idStr, ",")
 	last := -1
-	_openStartId := idNotOpen
+	_openStartId := idNotOpenEnded
 	_endIsOpen := false
 	for _, s := range a {
 		if _endIsOpen {
-			// must NOT loop
+			// new entry appears after an open-ended entry
 			err = ErrInvalidId
 			return
 		}
 		m := mIdRange.FindStringSubmatch(s) // "START-END"
-		if m != nil {
+		if m != nil {                       // id range
 			a, b := 0, 0
 			if m[1] != "" {
 				a, err = strconv.Atoi(m[1])
@@ -518,28 +509,27 @@ func parsePathIndex(namepath string) (path string, id []int, openStartId int, er
 				_openStartId, _endIsOpen = a, true
 				continue
 			}
-			b, e := strconv.Atoi(m[2])
-			if e != nil {
-				err = e
+			b, err = strconv.Atoi(m[2])
+			if err != nil {
 				return
 			}
 			for i := a; i <= b; i++ {
 				idList = append(idList, i)
 			}
 			last = b
-			continue
+		} else { // single id
+			var n int
+			n, err = strconv.Atoi(s)
+			if err != nil {
+				return
+			}
+			if n <= last {
+				err = ErrInvalidId
+				return
+			}
+			idList = append(idList, n)
+			last = n
 		}
-		n, e := strconv.Atoi(s)
-		if e != nil {
-			err = e
-			return
-		}
-		if n <= last {
-			err = ErrInvalidId
-			return
-		}
-		idList = append(idList, n)
-		last = n
 	}
 
 	return namepath, idList, _openStartId, nil
@@ -584,7 +574,7 @@ func detectSaveType(inPath string) (path string, isRpgMvSave bool, err error) {
 		return mkDirPath(inPath), true, nil
 	}
 	_p, _n := filepath.Split(inPath)
-	if _n == saveGlobal {
+	if _n == mvSaveGlobal {
 		// the file is global.rpgsave in the save directory
 		inPath = _p
 		isRpgMvSave = true
@@ -599,7 +589,7 @@ func detectSaveType(inPath string) (path string, isRpgMvSave bool, err error) {
 // if allEntry is true, then ss.IdList and ss.OpenStart is ignored and all entries are loaded
 func (ss *saveFileSelector) readSaveAtPath(indexOnly bool, allEntry bool) (save []*saveEntry, err error) {
 
-	if allEntry && (len(ss.IdList) > 0 || ss.OpenStart != idNotOpen) { // read all entry
+	if allEntry && (len(ss.IdList) > 0 || ss.OpenStart != idNotOpenEnded) { // read all entry
 		// make a temporary selector with "all" selector
 		tmpss := *ss
 		tmpss.IdList, tmpss.OpenStart = nil, 0
@@ -630,7 +620,6 @@ func (ss *saveFileSelector) readSaveAtPath(indexOnly bool, allEntry bool) (save 
 }
 
 // write the save to the path, autodetecting the save type
-// func writeSaveToPath(path string, save []*saveEntry, rawJson, pretty bool) (err error) {
 func (ss *saveFileSelector) writeSaveToPath(save []*saveEntry, rawJson, pretty bool) (err error) {
 	path, rpgMvSave := ss.NormalizedPath, ss.IsRpgMvSave
 	if path == "" {
@@ -639,8 +628,6 @@ func (ss *saveFileSelector) writeSaveToPath(save []*saveEntry, rawJson, pretty b
 			return
 		}
 	}
-	//path, _, _, _ = parsePathIndex(path)
-	//path, rpgMvSave, err := detectSaveType(path)
 	if rpgMvSave {
 		// write the savefiles as Rpg maker MV save directory
 		err = os.MkdirAll(path, 0644)
