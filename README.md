@@ -58,9 +58,9 @@ rpgmv-savetool cp -k ./ backup_all.rpgarch
 rpgmv-savetool ls backup_all.rpgarch
 ```
 
-* copy save 1, 3, 5 to a backup file's save slot #11, 12, 13
+* copy save 1, 3, 5 to a backup file's save slot #11, 12, ...
 ```
-rpgmv-savetool cp ./#1,3,5 save_02.rpgarch#11
+rpgmv-savetool cp ./#1,3,5 save_02.rpgarch#11-
 ```
 
 * copy all save slots in a backup file to save 10, 11, 12, ...
