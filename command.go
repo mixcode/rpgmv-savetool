@@ -126,8 +126,8 @@ func cmdLs(ss *saveFileSelector) (err error) {
 		charcount := len(ie.Characters)
 		playtime := ie.Playtime
 		if len(playtime) == 8 {
-			// truncate ":second"
-			playtime = playtime[:5]
+			//playtime = playtime[:5] // truncate ":second"
+			playtime = playtime[0:2] + "h" + playtime[3:5] + "m" // hh:mm:ss
 		}
 		lines = append(lines, fmt.Sprintf(
 			//				"#%d\000%s\000[%s]\000%d\000%s\000%s",
