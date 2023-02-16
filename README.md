@@ -1,7 +1,7 @@
 
-# A tool to manage rpgmaker-mv save files  RPGツクールMVのセーブデータをバックアップするツール
+# A tool to manage rpgmaker-mv/mz save files  RPGツクールMV・MZのセーブデータをバックアップするツール
 
-RPG-Maker MV save files are managed with a separated index file, 'global.rpgsave'.
+RPG-Maker MV (or MZ) save files are managed with a separated index file, 'global.rpgsave'.
 This tool copies, moves, and deletes save files with proper handling of the index file.
 
 ## install
@@ -23,21 +23,33 @@ rpgmv-savetool ls
 * copy save 1 to a backup file
 ```
 rpgmv-savetool cp file1.rpgsave save_01.rpgarch
+
+# or, with a shortcut
+rpgmv-savetool cp @1 save_01.rpgarch
 ```
 
-* copy the backup file to save 10
+* copy a backup file to save position 10
 ```
 rpgmv-savetool cp save_01.rpgarch file10.rpgsave
+
+# or, with a shortcut
+rpgmv-savetool cp save_01.rpgarch @10
 ```
 
 * move save 1 to save 9
 ```
 rpgmv-savetool mv file1.rpgsave file9.rpgsave
+
+# or
+rpgmv-savetool mv @1 @9
 ```
 
 * remove save 10
 ```
 rpgmv-savetool rm file10.rpgsave
+
+#or
+rpgmv-savetool mv @10
 ```
 
 ## advanced
@@ -60,22 +72,22 @@ rpgmv-savetool ls backup_all.rpgarch
 
 * copy save 1, 3, 5 to a backup file's save slot #11, 12, ...
 ```
-rpgmv-savetool cp ./#1,3,5 save_02.rpgarch#11-
+rpgmv-savetool cp @1,3,5 save_02.rpgarch@11-
 ```
 
 * copy all save slots in a backup file to save 10, 11, 12, ...
 ```
-rpgmv-savetool cp save_02.rpgarch ./#10-
+rpgmv-savetool cp save_02.rpgarch @10-
 ```
 
 * move savefile 1 to 5 to 11 to 15
 ```
-rpgmv-savetool mv -k ./#1-5 ./#11-
+rpgmv-savetool mv -k @1-5 @11-
 ```
 
 * remove all savefiles larger than 19
 ```
-rpgmv-savetool rm ./#20-
+rpgmv-savetool rm @20-
 ```
 
 ## TODO
