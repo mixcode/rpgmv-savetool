@@ -27,7 +27,7 @@ const (
 )
 
 var (
-	idMatch       = regexp.MustCompile(`^(.*?)([#@]([\d,-]+))?$`) // FILENAME.EXT#id,id-id,...
+	idMatch       = regexp.MustCompile(`^(.*?)([#@]([\d,-]+))?$`) // FILENAME.EXT@id,id-id,...
 	saveFileMatch = regexp.MustCompile(`^file(\d+)\.rpgsave$`)    // file[ID].rpgsave
 )
 
@@ -383,11 +383,11 @@ var (
 type saveFileSelector struct {
 	Path           string // input path
 	NormalizedPath string // normalized path created when opening the file
-	IsRpgMvSave    bool   // true if the NormalizedPath points toa rpg maker MV save directory
+	IsRpgMvSave    bool   // true if the NormalizedPath points to a rpg maker MV save directory
 
-	// ID list generator. usually the parsed result of #ID,ID,ID-... string
+	// ID list generator. usually the parsed result of @ID,ID,ID-... string
 	IdList    []int // list of individual IDs
-	OpenStart int   // the first id of open-ended id list. if idNotOpen, then there is no id list
+	OpenStart int   // the first id of open-ended id list. if idNotOpenEnded, then there is no open-ended id list
 
 	currentIdList []int // internal vars for NextId()
 	currentOpen   int
@@ -447,8 +447,8 @@ func (ss *saveFileSelector) ResetId() {
 
 // parse filename with ID numbers separated with a idSeparator mark.
 // ID is comma-separated, hyphen-connected increasing numbers.
-// openStartId contains the last id entry when it ends with a hyphen. idNotOpen if the list is not open-ended.
-// ex) "FILENAME#1,2,7,8-10,13,25-" -> id=[1,2,7,8,9,10,13], openStart=25
+// openStartId contains the last id entry when it ends with a hyphen. idNotOpenEnded if the list is not open-ended.
+// ex) "FILENAME@1,2,7,8-10,13,25-" -> id=[1,2,7,8,9,10,13], openStart=25
 func parsePathIndex(namepath string) (path string, id []int, openStartId int, err error) {
 
 	idStr := ""

@@ -130,8 +130,6 @@ func cmdLs(ss *saveFileSelector) (err error) {
 			playtime = playtime[0:2] + "h" + playtime[3:5] + "m" // hh:mm:ss
 		}
 		lines = append(lines, fmt.Sprintf(
-			//				"#%d\000%s\000[%s]\000%d\000%s\000%s",
-			//				en.Id, ts, playtime, charcount, ie.Title, ie.MapName,
 			"#%d\000%s\000[%s]\000%d\000%d\000%s",
 			en.Id, ts, playtime, charcount, ie.Gold, ie.MapName,
 		))

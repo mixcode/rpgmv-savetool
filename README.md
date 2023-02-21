@@ -22,18 +22,18 @@ rpgmv-savetool ls
 
 * copy save 1 to a backup file
 ```
-rpgmv-savetool cp file1.rpgsave save_01.rpgarch
+rpgmv-savetool cp file1.rpgsave backup_01.rpgarch
 
 # or, with a shortcut
-rpgmv-savetool cp @1 save_01.rpgarch
+rpgmv-savetool cp @1 backup_01.rpgarch
 ```
 
 * copy a backup file to save position 10
 ```
-rpgmv-savetool cp save_01.rpgarch file10.rpgsave
+rpgmv-savetool cp backup_01.rpgarch file10.rpgsave
 
 # or, with a shortcut
-rpgmv-savetool cp save_01.rpgarch @10
+rpgmv-savetool cp backup_01.rpgarch @10
 ```
 
 * move save 1 to save 9
@@ -49,18 +49,18 @@ rpgmv-savetool mv @1 @9
 rpgmv-savetool rm file10.rpgsave
 
 #or
-rpgmv-savetool mv @10
+rpgmv-savetool rm @10
 ```
 
 ## advanced
 
-The RPG maker mv save files are actually handled as a whole directory. You could designate savefiles with comma-separated list of save slot numbers.
-
+You could designate another directory as a source or a target of savefiles.
 * copy all save files to another directory
 ```
-rpgmv-savetool cp ./ ../save_backup/
-```
+rpgmv-savetool cp ./ ../backup_directory/
 
+```
+Or, you can save multiple save files to an archive file.
 * copy all save files to a single archive file
 ```
 # use -k to keep gaps between save slot numbers
@@ -70,14 +70,14 @@ rpgmv-savetool cp -k ./ backup_all.rpgarch
 rpgmv-savetool ls backup_all.rpgarch
 ```
 
-* copy save 1, 3, 5 to a backup file's save slot #11, 12, ...
+* copy save 1, 3, 5 to a backup file's save slot 11, 12, ...
 ```
-rpgmv-savetool cp @1,3,5 save_02.rpgarch@11-
+rpgmv-savetool cp @1,3,5 backup_02.rpgarch@11-
 ```
 
 * copy all save slots in a backup file to save 10, 11, 12, ...
 ```
-rpgmv-savetool cp save_02.rpgarch @10-
+rpgmv-savetool cp backup_02.rpgarch @10-
 ```
 
 * move savefile 1 to 5 to 11 to 15
