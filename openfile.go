@@ -21,7 +21,7 @@ const (
 
 	extRpgArchive = ".rpgarch" // default extension of the archive file
 
-	idSeparator = '#' // separator between filename and id
+	idSeparator = '@' // separator between filename and id
 
 	idNotOpenEnded = math.MaxInt // the id that represents not-a-open-range
 )
