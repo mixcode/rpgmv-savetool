@@ -206,7 +206,7 @@ func writeRpgMvSave(dirpath string, save *saveEntry) (filename string, err error
 	// compare file contents
 	content, e := os.ReadFile(filename)
 	if e == nil {
-		if string(content) != save.SaveData {
+		if string(content) == save.SaveData {
 			// no need to copy
 			err = ErrNotChanged
 			return

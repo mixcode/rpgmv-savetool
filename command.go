@@ -247,8 +247,8 @@ func cmdCp(src []*saveFileSelector, dest *saveFileSelector) (err error) {
 					destEntry = destEntry[1:]
 					continue
 				}
-				// overwriting; skip the existing entry
-				destEntry = destEntry[1:]
+				// overwriting
+				destEntry = destEntry[1:] // ignore the current existing entry
 			}
 			// copy a source entry to dest
 			if cfg.verbose {
@@ -259,10 +259,9 @@ func cmdCp(src []*saveFileSelector, dest *saveFileSelector) (err error) {
 			copyCount++
 		}
 	}
-	for len(destEntry) > 0 {
-		// save all leftover IDs
-		newSave = append(newSave, destEntry[0])
-		destEntry = destEntry[1:]
+	if len(destEntry) > 0 {
+		// store leftover save entries
+		newSave = append(newSave, destEntry...)
 	}
 
 	// save to file
